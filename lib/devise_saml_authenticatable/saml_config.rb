@@ -22,7 +22,7 @@ module DeviseSamlAuthenticatable
     def adapter_based_config(idp_entity_id)
       config = Marshal.load(Marshal.dump(Devise.saml_config))
 
-      Devise.idp_settings_adapter.settings(idp_entity_id).each do |k,v|
+      Devise.idp_settings_adapter.constantize.settings(idp_entity_id).each do |k,v|
         acc = "#{k.to_s}=".to_sym
 
         if config.respond_to? acc
