@@ -35,14 +35,23 @@ module Devise
             saml_response,
             attribute_map
           )
-          if (Devise.saml_use_subject)
+
+          if Apartment::Tenant.current == 'txstate'
+            auth_value = decorated_response.raw_response.attributes["uid"]
+
+            if Authentication.find_by(uid: decorated_response.raw_response.attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?
+               resource = Authentication.find_by(
+                 uid: decorated_response.raw_response.attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
+                 provider: 'saml').user
+            end
+          elsif (Devise.saml_use_subject)
             auth_value = saml_response.name_id
           else
             auth_value = decorated_response.attribute_value_by_resource_key(key)
           end
           auth_value.try(:downcase!) if Devise.case_insensitive_keys.include?(key)
 
-          resource = Devise.saml_resource_locator.call(self, decorated_response, auth_value)
+          resource = Devise.saml_resource_locator.call(self, decorated_response, auth_value) unless resource
 
           if Devise.saml_resource_validator
             if not Devise.saml_resource_validator.new.validate(resource, saml_response)
