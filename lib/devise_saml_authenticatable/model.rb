@@ -37,7 +37,7 @@ module Devise
           )
 
           if Apartment::Tenant.current == 'txstate'
-            auth_value = decorated_response.raw_response.attributes["uid"]
+            auth_value = decorated_response.raw_response.attributes["urn:oid:0.9.2342.19200300.100.1.1"]
 
             if Authentication.find_by(uid: decorated_response.raw_response.attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?
                resource = Authentication.find_by(
