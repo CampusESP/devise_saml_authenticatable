@@ -5,8 +5,10 @@ class Devise::SamlSessionsController < Devise::SessionsController
   unloadable if Rails::VERSION::MAJOR < 4
   if Rails::VERSION::MAJOR < 5
     skip_before_filter :verify_authenticity_token
+    prepend_before_filter :store_info_for_sp_initiated_logout, only: :destroy
   else
     skip_before_action :verify_authenticity_token, raise: false
+    prepend_before_action :store_info_for_sp_initiated_logout, only: :destroy
   end
 
   def new
@@ -45,6 +47,16 @@ class Devise::SamlSessionsController < Devise::SessionsController
 
   protected
 
+  # For non transient name ID, save info to identify user for logout purpose
+  # before that user's session got destroyed. These info are used in the
+  # `after_sign_out_path_for` method below.
+  def store_info_for_sp_initiated_logout
+      return unless FeatureSetting.saml_logout_requests_signed?
+      @name_identifier_value_for_sp_initiated_logout = current_user.authentications.find_by(provider: 'saml').secret
+      @sessionindex_for_sp_initiated_logout = Devise.saml_session_index_key ? current_user.send(Devise.saml_session_index_key) : nil
+    end
+
+
   def relay_state
     @relay_state ||= if Devise.saml_relay_state.present?
       Devise.saml_relay_state.call(request)
@@ -55,7 +67,17 @@ class Devise::SamlSessionsController < Devise::SessionsController
   def after_sign_out_path_for(_)
     idp_entity_id = get_idp_entity_id(params)
     request = OneLogin::RubySaml::Logoutrequest.new
-    request.create(saml_config(idp_entity_id))
+    saml_settings = saml_config(idp_entity_id).dup
+    # Add attributes to saml_settings which will later be used to create the SP
+    # initiated logout request
+    if FeatureSetting.saml_logout_requests_signed?
+      saml_settings.name_identifier_value = @name_identifier_value_for_sp_initiated_logout
+      saml_settings.sessionindex = @sessionindex_for_sp_initiated_logout
+      @name_identifier_value_for_sp_initiated_logout = nil
+      @sessionindex_for_sp_initiated_logout = nil
+    end
+
+    request.create(saml_settings)
   end
 
   def generate_idp_logout_response(saml_config, logout_request_id)
