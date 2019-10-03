@@ -38,11 +38,21 @@ module Devise
 
           if Apartment::Tenant.current == 'txstate'
             auth_value = decorated_response.raw_response.attributes["urn:oid:0.9.2342.19200300.100.1.1"]
+            raw_attributes = decorated_response.raw_response.attributes
+            user = User.find_by(email: raw_attributes[FeatureSetting.saml_user_email_attribute])
 
-            if Authentication.find_by(uid: decorated_response.raw_response.attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?
+            if Authentication.find_by(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?
                resource = Authentication.find_by(
-                 uid: decorated_response.raw_response.attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
+                 uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
                  provider: 'saml').user
+            elsif user
+              Authentication.create(
+                uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
+                provider: 'saml',
+                user_id: user.id,
+                secret: decorated_response.raw_response.name_id
+              )
+              resource = user
             end
           elsif (Devise.saml_use_subject)
             auth_value = saml_response.name_id
