@@ -36,7 +36,7 @@ module Devise
             attribute_map
           )
 
-          if Apartment::Tenant.current == 'txstate'
+          if FeatureSetting.saml_staff_enabled?
             auth_value = decorated_response.raw_response.attributes["urn:oid:0.9.2342.19200300.100.1.1"]
             raw_attributes = decorated_response.raw_response.attributes
             user = User.find_by(email: raw_attributes[FeatureSetting.saml_user_email_attribute])
