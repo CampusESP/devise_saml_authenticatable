@@ -41,7 +41,7 @@ module Devise
             raw_attributes = decorated_response.raw_response.attributes
             user = User.find_by(email: raw_attributes[FeatureSetting.saml_user_email_attribute])
 
-            if Authentication.find_by(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?
+            if (!user && Authentication.find_by(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?)
                resource = Authentication.find_by(
                  uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
                  provider: 'saml').user
