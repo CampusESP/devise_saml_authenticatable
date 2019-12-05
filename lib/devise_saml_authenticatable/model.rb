@@ -81,10 +81,15 @@ module Devise
           end
 
           if Devise.saml_update_user || (resource.new_record? && Devise.saml_create_user)
-            Devise.saml_update_resource_hook.call(resource, decorated_response, auth_value)
+            result = Devise.saml_update_resource_hook.call(resource, decorated_response, auth_value)
           end
 
-          resource
+          if result
+            return resource
+          else
+            resurce.delete
+            return nil
+          end
         end
 
         def reset_session_key_for(name_id)
