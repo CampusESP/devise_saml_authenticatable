@@ -46,7 +46,15 @@ module Devise
 
             user = User.where("email ILIKE ?", raw_attributes[FeatureSetting.saml_user_email_attribute]).first
 
-            if (!user && Authentication.find_by(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?)
+            if FeatureSetting.saml_students_enabled? && (!user && StudentData.where(authentication_key: raw_attributes[FeatureSetting.saml_ext_id_attribute_key]).present?)
+              resource = Student.find(StudentData.find_by(authentication_key: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name]).user_id)
+              auth = Authentication.find_or_initialize_by(uid: raw_attributes[FeatureSetting.saml_ext_id_attribute_key])
+              auth.update(
+                provider: 'saml',
+                user_id: resource.id,
+                secret: decorated_response.raw_response.name_id
+              )
+            elsif (!user && Authentication.where(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?)
                resource = Authentication.find_by(
                  uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
                  provider: 'saml').user
