@@ -52,6 +52,13 @@ module Devise
       end
 
       def failed_auth(msg)
+        Raven.capture_exception(
+          msg,
+          extra: {
+            response: @response,
+            self: self
+          }
+        )
         DeviseSamlAuthenticatable::Logger.send(msg)
         fail!(:invalid)
         Devise.saml_failed_callback.new.handle(@response, self) if Devise.saml_failed_callback
