@@ -30,81 +30,91 @@ module Devise
 
       module ClassMethods
         def authenticate_with_saml(saml_response, relay_state)
-          key = Devise.saml_default_user_key
-          decorated_response = ::SamlAuthenticatable::SamlResponse.new(
-            saml_response,
-            attribute_map
-          )
-          raw_attributes = decorated_response.raw_response.attributes
+          begin
+            key = Devise.saml_default_user_key
+            decorated_response = ::SamlAuthenticatable::SamlResponse.new(
+              saml_response,
+              attribute_map
+            )
+            raw_attributes = decorated_response.raw_response.attributes
 
-          if FeatureSetting.saml_trace_attributes?
-            Emailer2.diagnostic_message("Saml Login Attributes Devise - Raw Response", raw_attributes.to_json).deliver_now
-          end
+            if FeatureSetting.saml_trace_attributes?
+              Emailer2.diagnostic_message("Saml Login Attributes Devise - Raw Response", raw_attributes.to_json).deliver_now
+            end
 
-          if FeatureSetting.saml_staff_enabled?
-            auth_value = decorated_response.raw_response.attributes["urn:oid:0.9.2342.19200300.100.1.1"]
+            if FeatureSetting.saml_staff_enabled?
+              auth_value = decorated_response.raw_response.attributes["urn:oid:0.9.2342.19200300.100.1.1"]
 
-            user = User.where("email ILIKE ?", raw_attributes[FeatureSetting.saml_user_email_attribute]).first
+              user = User.where("email ILIKE ?", raw_attributes[FeatureSetting.saml_user_email_attribute]).first
 
-            # Note move this logic to our application
-            if FeatureSetting.saml_students_enabled? && (!user && StudentData.where(authentication_key: raw_attributes[FeatureSetting.saml_ext_id_attribute_key]).present?)
-              resource = Student.find_or_initialize_by(id: StudentData.find_by(authentication_key: raw_attributes[FeatureSetting.saml_ext_id_attribute_key]).user_id)
-              if resource
-                auth = Authentication.find_or_initialize_by(uid: raw_attributes[FeatureSetting.saml_ext_id_attribute_key])
-                auth.update(
+              # Note move this logic to our application
+              if FeatureSetting.saml_students_enabled? && (!user && StudentData.where(authentication_key: raw_attributes[FeatureSetting.saml_ext_id_attribute_key]).present?)
+                resource = Student.find_or_initialize_by(id: StudentData.find_by(authentication_key: raw_attributes[FeatureSetting.saml_ext_id_attribute_key]).user_id)
+                if resource
+                  auth = Authentication.find_or_initialize_by(uid: raw_attributes[FeatureSetting.saml_ext_id_attribute_key])
+                  auth.update(
+                    provider: 'saml',
+                    user_id: resource.id,
+                    secret: decorated_response.raw_response.name_id
+                  )
+                end
+              elsif (!user && Authentication.where(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?)
+                 resource = Authentication.find_by(
+                   uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
+                   provider: 'saml').user
+              elsif user
+                Authentication.create(
+                  uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
                   provider: 'saml',
-                  user_id: resource.id,
+                  user_id: user.id,
                   secret: decorated_response.raw_response.name_id
                 )
+                resource = user
               end
-            elsif (!user && Authentication.where(uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],provider: 'saml').present?)
-               resource = Authentication.find_by(
-                 uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
-                 provider: 'saml').user
-            elsif user
-              Authentication.create(
-                uid: raw_attributes[FeatureSetting.saml_ext_id_staff_attribute_name],
-                provider: 'saml',
-                user_id: user.id,
-                secret: decorated_response.raw_response.name_id
-              )
-              resource = user
-            end
-          elsif (Devise.saml_use_subject)
-            auth_value = saml_response.name_id
-          else
-            auth_value = decorated_response.attribute_value_by_resource_key(key)
-          end
-          auth_value.try(:downcase!) if Devise.case_insensitive_keys.include?(key)
-
-          resource = Devise.saml_resource_locator.call(self, decorated_response, auth_value) unless resource
-
-          if Devise.saml_resource_validator
-            if not Devise.saml_resource_validator.new.validate(resource, saml_response)
-              logger.info("User(#{auth_value}) did not pass custom validation.")
-              return nil
-            end
-          end
-
-          if resource.nil?
-            if Devise.saml_create_user
-              logger.info("Creating user(#{auth_value}).")
-              resource = new
+            elsif (Devise.saml_use_subject)
+              auth_value = saml_response.name_id
             else
-              logger.info("User(#{auth_value}) not found.  Not configured to create the user.")
+              auth_value = decorated_response.attribute_value_by_resource_key(key)
+            end
+            auth_value.try(:downcase!) if Devise.case_insensitive_keys.include?(key)
+
+            resource = Devise.saml_resource_locator.call(self, decorated_response, auth_value) unless resource
+
+            if Devise.saml_resource_validator
+              if not Devise.saml_resource_validator.new.validate(resource, saml_response)
+                logger.info("User(#{auth_value}) did not pass custom validation.")
+                return nil
+              end
+            end
+
+            if resource.nil?
+              if Devise.saml_create_user
+                logger.info("Creating user(#{auth_value}).")
+                resource = new
+              else
+                logger.info("User(#{auth_value}) not found.  Not configured to create the user.")
+                return nil
+              end
+            end
+
+            if Devise.saml_update_user || (resource.new_record? && Devise.saml_create_user)
+              result = Devise.saml_update_resource_hook.call(resource, decorated_response, auth_value)
+            end
+
+            if result
+              return resource
+            else
+              resurce.delete
               return nil
             end
-          end
-
-          if Devise.saml_update_user || (resource.new_record? && Devise.saml_create_user)
-            result = Devise.saml_update_resource_hook.call(resource, decorated_response, auth_value)
-          end
-
-          if result
-            return resource
-          else
-            resurce.delete
-            return nil
+          rescue => e
+            Raven.capture_exception(
+              e,
+              extra: {
+                saml_response: saml_response,
+                decorated_response: decorated_response ? decorated_response : nil
+              }
+            )
           end
         end
 
