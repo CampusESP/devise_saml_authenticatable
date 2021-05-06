@@ -104,7 +104,7 @@ module Devise
             if result
               return resource
             else
-              resurce.delete
+              resource.delete
               return nil
             end
           rescue => e
